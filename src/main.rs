@@ -1,43 +1,41 @@
-use std::env;
+use rayon::prelude::*;
+use std::{env, io::Result, path::Path};
 
-enum Entry {
-    DirEntry(std::fs::DirEntry),
-    PathBuf(std::path::PathBuf),
-}
-
-fn dir_size(entry: Entry) -> std::io::Result<i64> {
-    let path = match entry {
-        Entry::DirEntry(d) => d.path(),
-        Entry::PathBuf(d) => d,
+fn dir_size(path: &Path) -> Result<u64> {
+    // We don't count symlinks in disk usage calculations
+    if path.is_symlink() {
+        return Ok(0);
     };
 
     // Process the input path if it's a file.
     if path.is_file() {
-        return match path.metadata() {
-            Err(e) => Err(e),
-            Ok(x) => match x.is_symlink() {
-                true => Ok(0),
-                false => Ok(x.len() as i64),
-            },
-        };
+        return Ok(path.metadata()?.len());
     }
 
     // Process the input if it's a directory
-    let output = path
-        .read_dir()
-        .expect("read_dir() call failed!")
-        .map(|x| match x {
-            Err(e) => return Err(e),
-            Ok(x) => dir_size(Entry::DirEntry(x)),
+    let total = path
+        .read_dir()?
+        .par_bridge()
+        .map(|entry| {
+            let entry = entry.expect("Cannot get directory entry!");
+            let ft = entry.file_type().expect("Cannot get file type!"); // cheap, no extra syscall on OS
+
+            if ft.is_symlink() {
+                return 0;
+            }
+            if ft.is_file() {
+                return entry.metadata().unwrap().len();
+            } else {
+                return dir_size(&entry.path()).unwrap();
+            }
         })
-        .map(|x| x.expect("Cannot extract directory size!"))
-        .sum::<i64>();
+        .sum();
 
     // Add default directory size to total size
-    Ok(output)
+    return Ok(total);
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     assert!(
         args.len() == 2,
@@ -61,7 +59,7 @@ fn main() -> std::io::Result<()> {
                 };
 
                 let name = entry.file_name().into_string().unwrap();
-                let size = match dir_size(Entry::DirEntry(entry)) {
+                let size = match dir_size(&entry.path()) {
                     Err(e) => return Err(e),
                     Ok(x) => x,
                 };
@@ -75,7 +73,7 @@ fn main() -> std::io::Result<()> {
                 .expect("Cannot get name of given file!")
                 .to_string_lossy()
                 .into_owned();
-            let size = match dir_size(Entry::PathBuf(abs_path.clone())) {
+            let size = match dir_size(&abs_path) {
                 Err(e) => return Err(e),
                 Ok(x) => x,
             };
