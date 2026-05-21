@@ -24,9 +24,12 @@ fn dir_size(path: &Path) -> Result<u64> {
                 return 0;
             }
             if ft.is_file() {
-                return entry.metadata().unwrap().len();
+                return entry.metadata().expect("Cannot get file size!").len();
             } else {
-                return dir_size(&entry.path()).unwrap();
+                return dir_size(&entry.path()).expect(&format!(
+                    "Cannot get size of directory: {:?}",
+                    &entry.path().as_os_str()
+                ));
             }
         })
         .sum();
@@ -58,7 +61,10 @@ fn main() -> Result<()> {
                     Err(e) => return Err(e),
                 };
 
-                let name = entry.file_name().into_string().unwrap();
+                let name = entry.file_name().into_string().expect(&format!(
+                    "Cannot get string of file name: {:?}",
+                    entry.file_name()
+                ));
                 let size = match dir_size(&entry.path()) {
                     Err(e) => return Err(e),
                     Ok(x) => x,
@@ -78,7 +84,7 @@ fn main() -> Result<()> {
                 Ok(x) => x,
             };
 
-            println!("{:?}\t| {:#?}", name, size);
+            println!("{}\t| {}", name, size);
         }
         _ => panic!("Entry can only be a directory or file"),
     }
